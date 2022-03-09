@@ -1843,9 +1843,11 @@ github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35/go.mod h1:prY
 github.com/pquerna/cachecontrol v0.0.0-20201205024021-ac21108117ac/go.mod h1:hoLfEwdY11HjRfKFH6KqnPsfxlo3BP6bJehpDv8t6sQ=
 github.com/pquerna/otp v1.2.1-0.20191009055518-468c2dd2b58d/go.mod h1:dkJfzwRKNiegxyNb54X/3fLwhCynbMspSyWKnvi1AEg=
 github.com/prometheus-community/prom-label-proxy v0.2.0/go.mod h1:XdjyZg7LCbCC5FADHtpgNp6kQ0W9beXVGfmcvndMj5Y=
+github.com/prometheus-operator/prometheus-operator v0.43.0 h1:8tHhFPNHpI0Enyj9gGx8ZH+eBinK6gHIL9Xlukmb3tE=
 github.com/prometheus-operator/prometheus-operator v0.43.0/go.mod h1:QyegD4qcipuCQdl0Z+/hbzUotlg7PCcmwH9JD0L+GeE=
 github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.43.0/go.mod h1:udmeCxAYc7D6folUmLnaCXW4RUSX9Y+maxf00eE1meE=
 github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.44.1/go.mod h1:3WYi4xqXxGGXWDdQIITnLNmuDzO5n6wYva9spVhR4fg=
+github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.46.0 h1:J+aQlaDVIemgZDR1f/48MBaiA7rDTm6OyKSRhDX2ZTY=
 github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.46.0/go.mod h1:3WYi4xqXxGGXWDdQIITnLNmuDzO5n6wYva9spVhR4fg=
 github.com/prometheus-operator/prometheus-operator/pkg/client v0.46.0/go.mod h1:k4BrWlVQQsvBiTcDnKEMgyh/euRxyxgrHdur/ZX/sdA=
 github.com/prometheus/alertmanager v0.18.0/go.mod h1:WcxHBl40VSPuOaqWae6l6HpnEOVRIycEJ7i9iYkadEE=

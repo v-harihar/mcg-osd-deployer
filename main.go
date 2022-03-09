@@ -44,6 +44,9 @@ import (
 	opv1a1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	mcgv1alpha1 "github.com/red-hat-storage/mcg-osd-deployer/api/v1alpha1"
 	"github.com/red-hat-storage/mcg-osd-deployer/controllers"
+
+	promv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	promv1a1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -77,6 +80,10 @@ func addAllSchemes(scheme *runtime.Scheme) {
 	utilruntime.Must(opv1a1.AddToScheme(scheme))
 
 	utilruntime.Must(operatorv1.AddToScheme(scheme))
+
+	utilruntime.Must(promv1.AddToScheme(scheme))
+
+	utilruntime.Must(promv1a1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
 }

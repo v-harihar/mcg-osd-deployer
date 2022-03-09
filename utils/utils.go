@@ -17,17 +17,21 @@ limitations under the License.
 package utils
 
 import (
+	"fmt"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// GetDaemonResources returns a custom ResourceRequirements for the passed
+// GetResourceRequirements returns a custom ResourceRequirements for the passed
 // name, if found in the passed resource map. If not, it returns the default
 // value for the given name.
-func GetDaemonResources(name string) corev1.ResourceRequirements {
-	return DaemonResources[name]
+func GetResourceRequirements(name string) corev1.ResourceRequirements {
+	if req, ok := ResourceRequirements[name]; ok {
+		return req
+	}
+	panic(fmt.Sprintf("Resource requirement not found: %v", name))
 }
 
 // Contains checks whether a string is contained within a slice

@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -26,11 +27,14 @@ import (
 	noobaa "github.com/noobaa/noobaa-operator/v5/pkg/apis/noobaa/v1alpha1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	opv1a1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
+	promv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	promv1a1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1alpha1"
 	odfv1alpha1 "github.com/red-hat-data-services/odf-operator/api/v1alpha1"
 	mcgv1alpha1 "github.com/red-hat-storage/mcg-osd-deployer/api/v1alpha1"
 	"github.com/red-hat-storage/mcg-osd-deployer/templates"
 	"github.com/red-hat-storage/mcg-osd-deployer/utils"
 	ocsv1 "github.com/red-hat-storage/ocs-operator/api/v1"
+	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -61,6 +65,21 @@ const (
 	storageClusterName              = "mcg-storagecluster"
 	deployerCSVPrefix               = "mcg-osd-deployer"
 	noobaaOperatorName              = "noobaa-operator"
+
+	alertRelabelConfigSecretKey            = "alertrelabelconfig.yaml"
+	prometheusName                         = "managed-mcg-prometheus"
+	monLabelKey                            = "app"
+	monLabelValue                          = "managed-mcg"
+	alertRelabelConfigSecretName           = "managed-mcg-alert-relabel-config-secret"
+	alertmanagerName                       = "managed-mcg-alertmanager"
+	notificationEmailKeyPrefix             = "notification-email"
+	grafanaDatasourceSecretName            = "grafana-datasources"
+	grafanaDatasourceSecretKey             = "prometheus.yaml"
+	k8sMetricsServiceMonitorAuthSecretName = "k8s-metrics-service-monitor-auth"
+	openshiftMonitoringNamespace           = "openshift-monitoring"
+	dmsRuleName                            = "dms-monitor-rule"
+	alertmanagerConfigName                 = "managed-mcg-alertmanager-config"
+	k8sMetricsServiceMonitorName           = "k8s-metrics-service-monitor"
 )
 
 // ImageMap holds mapping information between component image name and the image url
@@ -89,6 +108,22 @@ type ManagedMCGReconciler struct {
 
 	AddonConfigMapName           string
 	AddonConfigMapDeleteLabelKey string
+
+	prometheus                         *promv1.Prometheus
+	pagerdutySecret                    *corev1.Secret
+	deadMansSnitchSecret               *corev1.Secret
+	smtpSecret                         *corev1.Secret
+	alertmanagerConfig                 *promv1a1.AlertmanagerConfig
+	alertRelabelConfigSecret           *corev1.Secret
+	k8sMetricsServiceMonitor           *promv1.ServiceMonitor
+	k8sMetricsServiceMonitorAuthSecret *corev1.Secret
+	addonParams                        map[string]string
+	onboardingValidationKeySecret      *corev1.Secret
+	alertmanager                       *promv1.Alertmanager
+	PagerdutySecretName                string
+	SOPEndpoint                        string
+	dmsRule                            *promv1.PrometheusRule
+	DeadMansSnitchSecretName           string
 }
 
 func (r *ManagedMCGReconciler) initReconciler(req ctrl.Request) {
@@ -118,6 +153,43 @@ func (r *ManagedMCGReconciler) initReconciler(req ctrl.Request) {
 	r.storageCluster = &ocsv1.StorageCluster{}
 	r.storageCluster.Name = storageClusterName
 	r.storageCluster.Namespace = r.namespace
+
+	r.prometheus = &promv1.Prometheus{}
+	r.prometheus.Name = prometheusName
+	r.prometheus.Namespace = r.namespace
+
+	r.alertmanager = &promv1.Alertmanager{}
+	r.alertmanager.Name = alertmanagerName
+	r.alertmanager.Namespace = r.namespace
+
+	r.pagerdutySecret = &corev1.Secret{}
+	r.pagerdutySecret.Name = r.PagerdutySecretName
+	r.pagerdutySecret.Namespace = r.namespace
+
+	r.dmsRule = &promv1.PrometheusRule{}
+	r.dmsRule.Name = dmsRuleName
+	r.dmsRule.Namespace = r.namespace
+
+	r.deadMansSnitchSecret = &corev1.Secret{}
+	r.deadMansSnitchSecret.Name = r.DeadMansSnitchSecretName
+	r.deadMansSnitchSecret.Namespace = r.namespace
+
+	r.alertmanagerConfig = &promv1a1.AlertmanagerConfig{}
+	r.alertmanagerConfig.Name = alertmanagerConfigName
+	r.alertmanagerConfig.Namespace = r.namespace
+
+	r.k8sMetricsServiceMonitor = &promv1.ServiceMonitor{}
+	r.k8sMetricsServiceMonitor.Name = k8sMetricsServiceMonitorName
+	r.k8sMetricsServiceMonitor.Namespace = r.namespace
+
+	r.k8sMetricsServiceMonitorAuthSecret = &corev1.Secret{}
+	r.k8sMetricsServiceMonitorAuthSecret.Name = k8sMetricsServiceMonitorAuthSecretName
+	r.k8sMetricsServiceMonitorAuthSecret.Namespace = r.namespace
+
+	r.alertRelabelConfigSecret = &corev1.Secret{}
+	r.alertRelabelConfigSecret.Name = alertRelabelConfigSecretName
+	r.alertRelabelConfigSecret.Namespace = r.namespace
+
 }
 
 //+kubebuilder:rbac:groups=mcg.openshift.io,resources={managedmcg,managedmcg/finalizers},verbs=get;list;watch;create;update;patch;delete
@@ -133,6 +205,11 @@ func (r *ManagedMCGReconciler) initReconciler(req ctrl.Request) {
 //+kubebuilder:rbac:groups=odf.openshift.io,namespace=system,resources=storagesystems,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=console.openshift.io,resources=consoleplugins,verbs=*
 //+kubebuilder:rbac:groups=operator.openshift.io,resources=consoles,verbs=*
+
+// +kubebuilder:rbac:groups="monitoring.coreos.com",namespace=system,resources={alertmanagers,prometheuses,alertmanagerconfigs},verbs=get;list;watch;create;update;
+// +kubebuilder:rbac:groups="monitoring.coreos.com",namespace=system,resources=prometheusrules,verbs=get;list;watch;create;update;
+// +kubebuilder:rbac:groups="monitoring.coreos.com",namespace=system,resources=podmonitors,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups="monitoring.coreos.com",namespace=system,resources=servicemonitors,verbs=get;list;watch;update;patch;create;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -256,6 +333,37 @@ func (r *ManagedMCGReconciler) reconcilePhases() (reconcile.Result, error) {
 		if err := r.reconcileStorageCluster(); err != nil {
 			return ctrl.Result{}, err
 		}
+
+		/*
+			Alert start here
+		*/
+		if err := r.reconcileAlertRelabelConfigSecret(); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.reconcilePrometheus(); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.reconcileAlertmanager(); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.reconcileAlertmanagerConfig(); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.reconcileK8SMetricsServiceMonitorAuthSecret(); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.reconcileK8SMetricsServiceMonitor(); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.reconcileMonitoringResources(); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.reconcileDMSPrometheusRule(); err != nil {
+			return ctrl.Result{}, err
+		}
+		/*
+			Alert End here
+		*/
 		r.managedMCG.Status.ReconcileStrategy = r.reconcileStrategy
 
 		// Check if we need and can uninstall
@@ -316,6 +424,297 @@ func (r *ManagedMCGReconciler) checkUninstallCondition() bool {
 	return ok
 }
 
+func (r *ManagedMCGReconciler) reconcileDMSPrometheusRule() error {
+	r.Log.Info("Reconciling DMS Prometheus Rule")
+
+	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.dmsRule, func() error {
+		if err := r.own(r.dmsRule); err != nil {
+			return err
+		}
+
+		desired := templates.DMSPrometheusRuleTemplate.DeepCopy()
+
+		for _, group := range desired.Spec.Groups {
+			if group.Name == "snitch-alert" {
+				for _, rule := range group.Rules {
+					if rule.Alert == "DeadMansSnitch" {
+						rule.Labels["namespace"] = r.namespace
+					}
+				}
+			}
+		}
+
+		r.dmsRule.Spec = desired.Spec
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *ManagedMCGReconciler) reconcileK8SMetricsServiceMonitorAuthSecret() error {
+	r.Log.Info("Reconciling k8sMetricsServiceMonitorAuthSecret")
+
+	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.k8sMetricsServiceMonitorAuthSecret, func() error {
+		if err := r.own(r.k8sMetricsServiceMonitorAuthSecret); err != nil {
+			return err
+		}
+
+		secret := &corev1.Secret{}
+		secret.Name = grafanaDatasourceSecretName
+		secret.Namespace = openshiftMonitoringNamespace
+		if err := r.unrestrictedGet(secret); err != nil {
+			return fmt.Errorf("Failed to get grafana-datasources secret from openshift-monitoring namespace: %v", err)
+		}
+
+		authInfoStructure := struct {
+			DataSources []struct {
+				BasicAuthPassword string `json:"basicAuthPassword"`
+				BasicAuthUser     string `json:"basicAuthUser"`
+			} `json:"datasources"`
+		}{}
+
+		if err := json.Unmarshal(secret.Data[grafanaDatasourceSecretKey], &authInfoStructure); err != nil {
+			return fmt.Errorf("Could not unmarshal Grapana datasource data: %v", err)
+		}
+
+		r.k8sMetricsServiceMonitorAuthSecret.Data = nil
+		for key := range authInfoStructure.DataSources {
+			ds := &authInfoStructure.DataSources[key]
+			if ds.BasicAuthUser == "internal" && ds.BasicAuthPassword != "" {
+				r.k8sMetricsServiceMonitorAuthSecret.Data = map[string][]byte{
+					"Username": []byte(ds.BasicAuthUser),
+					"Password": []byte(ds.BasicAuthPassword),
+				}
+			}
+		}
+		if r.k8sMetricsServiceMonitorAuthSecret.Data == nil {
+			return fmt.Errorf("Grapana datasource does not contain the needed credentials")
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("Failed to update k8sMetricsServiceMonitorAuthSecret: %v", err)
+	}
+	return nil
+}
+
+func (r *ManagedMCGReconciler) reconcileK8SMetricsServiceMonitor() error {
+	r.Log.Info("Reconciling k8sMetricsServiceMonitor")
+
+	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.k8sMetricsServiceMonitor, func() error {
+		if err := r.own(r.k8sMetricsServiceMonitor); err != nil {
+			return err
+		}
+		desired := templates.K8sMetricsServiceMonitorTemplate.DeepCopy()
+		r.k8sMetricsServiceMonitor.Spec = desired.Spec
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("Failed to update k8sMetricsServiceMonitor: %v", err)
+	}
+	return nil
+}
+
+// reconcileMonitoringResources labels all monitoring resources (ServiceMonitors, PodMonitors, and PrometheusRules)
+// found in the target namespace with a label that matches the label selector the defined on the Prometheus resource
+// we are reconciling in reconcilePrometheus. Doing so instructs the Prometheus instance to notice and react to these labeled
+// monitoring resources
+func (r *ManagedMCGReconciler) reconcileMonitoringResources() error {
+	r.Log.Info("reconciling monitoring resources")
+
+	podMonitorList := promv1.PodMonitorList{}
+	if err := r.list(&podMonitorList); err != nil {
+		return fmt.Errorf("Could not list pod monitors: %v", err)
+	}
+	for i := range podMonitorList.Items {
+		obj := podMonitorList.Items[i]
+		utils.AddLabel(obj, monLabelKey, monLabelValue)
+		if err := r.update(obj); err != nil {
+			return err
+		}
+	}
+
+	serviceMonitorList := promv1.ServiceMonitorList{}
+	if err := r.list(&serviceMonitorList); err != nil {
+		return fmt.Errorf("Could not list service monitors: %v", err)
+	}
+	for i := range serviceMonitorList.Items {
+		obj := serviceMonitorList.Items[i]
+		utils.AddLabel(obj, monLabelKey, monLabelValue)
+		if err := r.update(obj); err != nil {
+			return err
+		}
+	}
+
+	promRuleList := promv1.PrometheusRuleList{}
+	if err := r.list(&promRuleList); err != nil {
+		return fmt.Errorf("Could not list prometheus rules: %v", err)
+	}
+	for i := range promRuleList.Items {
+		obj := promRuleList.Items[i]
+		utils.AddLabel(obj, monLabelKey, monLabelValue)
+		if err := r.update(obj); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *ManagedMCGReconciler) reconcileAlertmanagerConfig() error {
+	r.Log.Info("Reconciling AlertmanagerConfig secret")
+
+	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.alertmanagerConfig, func() error {
+		if err := r.own(r.alertmanagerConfig); err != nil {
+			return err
+		}
+
+		if err := r.get(r.pagerdutySecret); err != nil {
+			return fmt.Errorf("Unable to get pagerduty secret: %v", err)
+		}
+		pagerdutySecretData := r.pagerdutySecret.Data
+		pagerdutyServiceKey := string(pagerdutySecretData["PAGERDUTY_KEY"])
+		if pagerdutyServiceKey == "" {
+			return fmt.Errorf("Pagerduty secret does not contain a PAGERDUTY_KEY entry")
+		}
+
+		if r.deadMansSnitchSecret.UID == "" {
+			if err := r.get(r.deadMansSnitchSecret); err != nil {
+				return fmt.Errorf("Unable to get DeadMan's Snitch secret: %v", err)
+			}
+		}
+		dmsURL := string(r.deadMansSnitchSecret.Data["SNITCH_URL"])
+		if dmsURL == "" {
+			return fmt.Errorf("DeadMan's Snitch secret does not contain a SNITCH_URL entry")
+		}
+
+		alertingAddressList := []string{}
+		i := 0
+		for {
+			alertingAddressKey := fmt.Sprintf("%s-%v", notificationEmailKeyPrefix, i)
+			alertingAddress, found := r.addonParams[alertingAddressKey]
+			i++
+			if found {
+				alertingAddressAsString := alertingAddress
+				if alertingAddressAsString != "" {
+					alertingAddressList = append(alertingAddressList, alertingAddressAsString)
+				}
+			} else {
+				break
+			}
+		}
+
+		desired := templates.AlertmanagerConfigTemplate.DeepCopy()
+		for i := range desired.Spec.Receivers {
+			receiver := &desired.Spec.Receivers[i]
+			switch receiver.Name {
+			case "pagerduty":
+				receiver.PagerDutyConfigs[0].ServiceKey.Key = "PAGERDUTY_KEY"
+				receiver.PagerDutyConfigs[0].ServiceKey.LocalObjectReference.Name = r.PagerdutySecretName
+				receiver.PagerDutyConfigs[0].Details[0].Key = "SOP"
+				receiver.PagerDutyConfigs[0].Details[0].Value = r.SOPEndpoint
+			case "DeadMansSnitch":
+				receiver.WebhookConfigs[0].URL = &dmsURL
+			}
+		}
+		r.alertmanagerConfig.Spec = desired.Spec
+		utils.AddLabel(r.alertmanagerConfig, monLabelKey, monLabelValue)
+
+		return nil
+	})
+
+	return err
+}
+
+func (r *ManagedMCGReconciler) reconcileAlertmanager() error {
+	r.Log.Info("Reconciling Alertmanager")
+	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.alertmanager, func() error {
+		if err := r.own(r.alertmanager); err != nil {
+			return err
+		}
+
+		desired := templates.AlertmanagerTemplate.DeepCopy()
+		desired.Spec.AlertmanagerConfigSelector = &metav1.LabelSelector{
+			MatchLabels: map[string]string{
+				monLabelKey: monLabelValue,
+			},
+		}
+		r.alertmanager.Spec = desired.Spec
+		utils.AddLabel(r.alertmanager, monLabelKey, monLabelValue)
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *ManagedMCGReconciler) reconcilePrometheus() error {
+	r.Log.Info("Reconciling Prometheus")
+	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.prometheus, func() error {
+		if err := r.own(r.prometheus); err != nil {
+			return err
+		}
+		desired := templates.PrometheusTemplate.DeepCopy()
+		r.prometheus.ObjectMeta.Labels = map[string]string{monLabelKey: monLabelValue}
+		r.prometheus.Spec = desired.Spec
+		r.prometheus.Spec.Alerting.Alertmanagers[0].Namespace = r.namespace
+		r.prometheus.Spec.AdditionalAlertRelabelConfigs = &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{
+				Name: alertRelabelConfigSecretName,
+			},
+			Key: alertRelabelConfigSecretKey,
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// AlertRelabelConfigSecret will have configuration for relabeling the alerts that are firing.
+// It will add namespace label to firing alerts before they are sent to the alertmanager
+func (r *ManagedMCGReconciler) reconcileAlertRelabelConfigSecret() error {
+	r.Log.Info("Reconciling alertRelabelConfigSecret")
+
+	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.alertRelabelConfigSecret, func() error {
+		if err := r.own(r.alertRelabelConfigSecret); err != nil {
+			return err
+		}
+
+		alertRelabelConfig := []struct {
+			TargetLabel string `yaml:"target_label,omitempty"`
+			Replacement string `yaml:"replacement,omitempty"`
+		}{{
+			TargetLabel: "namespace",
+			Replacement: r.namespace,
+		}}
+
+		config, err := yaml.Marshal(alertRelabelConfig)
+		if err != nil {
+			return fmt.Errorf("Unable to encode alert relabel conifg: %v", err)
+		}
+		r.alertRelabelConfigSecret.Data = map[string][]byte{
+			alertRelabelConfigSecretKey: config,
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("Unable to create/update AlertRelabelConfigSecret: %v", err)
+	}
+
+	return nil
+}
+
 func (r *ManagedMCGReconciler) reconcileStorageCluster() error {
 	r.Log.Info("Reconciling StorageCluster")
 	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.storageCluster, func() error {
@@ -363,7 +762,7 @@ func (r *ManagedMCGReconciler) reconcileODFCSV() error {
 			name := container.Name
 			switch name {
 			case "manager":
-				resources := utils.GetDaemonResources("odf-operator")
+				resources := utils.GetResourceRequirements("odf-operator")
 				if !equality.Semantic.DeepEqual(container.Resources, resources) {
 					container.Resources = resources
 					isChanged = true
@@ -405,10 +804,10 @@ func (r *ManagedMCGReconciler) reconcileNoobaa() error {
 }
 
 func (r *ManagedMCGReconciler) setNooBaaDesiredState(desiredNoobaa *noobaa.NooBaa) error {
-	coreResources := utils.GetDaemonResources("noobaa-core")
-	dbResources := utils.GetDaemonResources("noobaa-db")
-	dBVolumeResources := utils.GetDaemonResources("noobaa-db-vol")
-	endpointResources := utils.GetDaemonResources("noobaa-endpoint")
+	coreResources := utils.GetResourceRequirements("noobaa-core")
+	dbResources := utils.GetResourceRequirements("noobaa-db")
+	dBVolumeResources := utils.GetResourceRequirements("noobaa-db-vol")
+	endpointResources := utils.GetResourceRequirements("noobaa-endpoint")
 
 	desiredNoobaa.Labels = map[string]string{
 		"app": "noobaa",
@@ -668,4 +1067,9 @@ func (r *ManagedMCGReconciler) getCSVByPrefix(name string) (*opv1a1.ClusterServi
 		return nil, fmt.Errorf("unable to get csv resources for %s ", name)
 	}
 	return csv, nil
+}
+
+func (r *ManagedMCGReconciler) unrestrictedGet(obj client.Object) error {
+	key := client.ObjectKeyFromObject(obj)
+	return r.UnrestrictedClient.Get(r.ctx, key, obj)
 }

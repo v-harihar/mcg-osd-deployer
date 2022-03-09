@@ -8,7 +8,7 @@ import (
 var (
 	// DaemonResources map contains the default resource requirements for the
 	// various OCS daemons
-	DaemonResources = map[string]corev1.ResourceRequirements{
+	ResourceRequirements = map[string]corev1.ResourceRequirements{
 		"noobaa-core": {
 			Requests: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("500m"),
@@ -52,6 +52,26 @@ var (
 			Requests: corev1.ResourceList{
 				"cpu":    resource.MustParse("200m"),
 				"memory": resource.MustParse("120Mi"),
+			},
+		},
+		"prometheus": {
+			Limits: corev1.ResourceList{
+				"cpu":    resource.MustParse("1"),
+				"memory": resource.MustParse("250Mi"),
+			},
+			Requests: corev1.ResourceList{
+				"cpu":    resource.MustParse("1"),
+				"memory": resource.MustParse("250Mi"),
+			},
+		},
+		"alertmanager": {
+			Limits: corev1.ResourceList{
+				"cpu":    resource.MustParse("100m"),
+				"memory": resource.MustParse("200Mi"),
+			},
+			Requests: corev1.ResourceList{
+				"cpu":    resource.MustParse("100m"),
+				"memory": resource.MustParse("200Mi"),
 			},
 		},
 	}
