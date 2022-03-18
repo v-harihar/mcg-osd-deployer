@@ -17,14 +17,25 @@ limitations under the License.
 package templates
 
 import (
-	ocsv1 "github.com/red-hat-storage/ocs-operator/api/v1"
+	routev1 "github.com/openshift/api/route/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
-var StorageClusterTemplate = ocsv1.StorageCluster{
-	Spec: ocsv1.StorageClusterSpec{
-		MultiCloudGateway: &ocsv1.MultiCloudGatewaySpec{
-			ReconcileStrategy: "ignore",
+var weight int32 = 100
+var RouteTemplate = routev1.Route{
+	Spec: routev1.RouteSpec{
+		To: routev1.RouteTargetReference{
+			Kind:   "Service",
+			Name:   "prometheus-operated",
+			Weight: &weight,
 		},
-		Version: "4.9.0",
+		Port: &routev1.RoutePort{
+			TargetPort: intstr.IntOrString{
+				Type:   intstr.String,
+				IntVal: 9090,
+				StrVal: "web",
+			},
+		},
+		WildcardPolicy: routev1.WildcardPolicyNone,
 	},
 }

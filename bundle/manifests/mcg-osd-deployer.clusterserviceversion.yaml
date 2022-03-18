@@ -38,11 +38,13 @@ spec:
       clusterPermissions:
       - rules:
         - apiGroups:
-          - console.openshift.io
+          - ""
           resources:
-          - consoleplugins
+          - secrets
           verbs:
-          - '*'
+          - get
+          - list
+          - watch
         - apiGroups:
           - mcg.openshift.io
           resources:
@@ -85,12 +87,6 @@ spec:
           - get
           - patch
           - update
-        - apiGroups:
-          - operator.openshift.io
-          resources:
-          - consoles
-          verbs:
-          - '*'
         serviceAccountName: deployer
       deployments:
       - name: mcg-osd-deployer-controller-manager
@@ -134,13 +130,17 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.namespace
+                - name: SOP_ENDPOINT
+                  value: test.url
+                - name: ALERT_SMTP_FROM_ADDR
+                  value: test@redhat.com
                 - name: ADDON_NAME
                   value: mcg-osd
                 - name: NOOBAA_CORE_IMAGE
                   value: quay.io/noobaa/noobaa-core:5.9-20220206
                 - name: NOOBAA_DB_IMAGE
                   value: quay.io/centos7/postgresql-12-centos7:centos7
-                image: quay.io/napaul/mcg-osd-deployer:v1.8
+                image: quay.io/napaul/mcg-osd-deployer:v1.3
                 name: manager
                 resources:
                   limits:
@@ -156,7 +156,7 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.namespace
-                image: quay.io/napaul/mcg-osd-deployer:v1.8
+                image: quay.io/napaul/mcg-osd-deployer:v1.3
                 name: readiness-server
                 readinessProbe:
                   httpGet:
@@ -186,6 +186,23 @@ spec:
           - update
           - watch
         - apiGroups:
+          - ""
+          resources:
+          - secrets
+          verbs:
+          - create
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - apps
+          resources:
+          - statefulsets
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
           - coordination.k8s.io
           resources:
           - leases
@@ -193,6 +210,50 @@ spec:
           - create
           - get
           - list
+          - update
+          - watch
+        - apiGroups:
+          - monitoring.coreos.com
+          resources:
+          - alertmanagerconfigs
+          - alertmanagers
+          - prometheuses
+          verbs:
+          - create
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - monitoring.coreos.com
+          resources:
+          - podmonitors
+          verbs:
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - monitoring.coreos.com
+          resources:
+          - prometheusrules
+          verbs:
+          - create
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - monitoring.coreos.com
+          resources:
+          - servicemonitors
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
           - update
           - watch
         - apiGroups:
@@ -218,18 +279,6 @@ spec:
           - update
           - watch
         - apiGroups:
-          - odf.openshift.io
-          resources:
-          - storagesystems
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
           - operators.coreos.com
           resources:
           - clusterserviceversions
@@ -237,7 +286,15 @@ spec:
           - delete
           - get
           - list
-          - patch
+          - watch
+        - apiGroups:
+          - route.openshift.io
+          resources:
+          - routes
+          verbs:
+          - create
+          - get
+          - list
           - update
           - watch
         serviceAccountName: deployer

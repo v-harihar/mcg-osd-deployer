@@ -35,28 +35,19 @@ func convertToApiExtV1JSON(val interface{}) apiextensionsv1.JSON {
 var _false = false
 
 var pagerdutyAlerts = []string{
-	"CephMdsMissingReplicas",
-	"CephMgrIsAbsent",
-	"CephMgrIsMissingReplicas",
-	"CephNodeDown",
-	"CephClusterErrorState",
-	"CephClusterWarningState",
-	"CephOSDVersionMismatch",
-	"CephMonVersionMismatch",
-	"CephOSDFlapping",
-	"CephOSDDiskNotResponding",
-	"CephOSDDiskUnavailable",
-	"CephDataRecoveryTakingTooLong",
-	"CephPGRepairTakingTooLong",
-	"CephMonQuorumAtRisk",
-	"CephMonHighNumberOfLeaderChanges",
+	"NooBaaResourceErrorState",
+	"NooBaaNamespaceResourceErrorState",
+	"NooBaaBucketErrorState",
+	"NooBaaNamespaceBucketErrorState",
 }
 var smtpAlerts = []string{
-	"CephClusterNearFull",
-	"CephClusterCriticallyFull",
-	"CephClusterReadOnly",
-	"PersistentVolumeUsageNearFull",
-	"PersistentVolumeUsageCritical",
+	"NooBaaBucketReachingQuotaState",
+	"NooBaaBucketExceedingQuotaState",
+	"NooBaaBucketLowCapacityState",
+	"NooBaaBucketNoCapacityState",
+	"NooBaaSystemCapacityWarning85",
+	"NooBaaSystemCapacityWarning95",
+	"NooBaaSystemCapacityWarning100",
 }
 
 // List of silenced alerts

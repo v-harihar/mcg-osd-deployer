@@ -7,7 +7,7 @@ import (
 
 var (
 	// DaemonResources map contains the default resource requirements for the
-	// various OCS daemons
+	// various MCG daemons
 	ResourceRequirements = map[string]corev1.ResourceRequirements{
 		"noobaa-core": {
 			Requests: corev1.ResourceList{

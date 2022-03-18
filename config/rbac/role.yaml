@@ -7,11 +7,13 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - console.openshift.io
+  - ""
   resources:
-  - consoleplugins
+  - secrets
   verbs:
-  - '*'
+  - get
+  - list
+  - watch
 - apiGroups:
   - mcg.openshift.io
   resources:
@@ -54,12 +56,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - operator.openshift.io
-  resources:
-  - consoles
-  verbs:
-  - '*'
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -80,6 +76,23 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - coordination.k8s.io
   resources:
   - leases
@@ -87,6 +100,50 @@ rules:
   - create
   - get
   - list
+  - update
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - alertmanagerconfigs
+  - alertmanagers
+  - prometheuses
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - podmonitors
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - prometheusrules
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - servicemonitors
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
   - update
   - watch
 - apiGroups:
@@ -112,18 +169,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - odf.openshift.io
-  resources:
-  - storagesystems
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - operators.coreos.com
   resources:
   - clusterserviceversions
@@ -131,6 +176,14 @@ rules:
   - delete
   - get
   - list
-  - patch
+  - watch
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes
+  verbs:
+  - create
+  - get
+  - list
   - update
   - watch

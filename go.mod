@@ -11,8 +11,6 @@ require (
 	github.com/openshift/api v3.9.1-0.20190924102528-32369d4db2ad+incompatible
 	github.com/operator-framework/api v0.10.0
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.46.0
-	github.com/red-hat-data-services/odf-operator v0.0.0-20220125090341-1db73867dd7d
-	github.com/red-hat-storage/ocs-operator v0.4.9
 	go.uber.org/zap v1.20.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.22.2

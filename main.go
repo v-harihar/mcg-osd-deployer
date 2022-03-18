@@ -28,8 +28,6 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"github.com/go-logr/logr"
-	odfv1alpha1 "github.com/red-hat-data-services/odf-operator/api/v1alpha1"
-	ocsv1 "github.com/red-hat-storage/ocs-operator/api/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -45,6 +43,7 @@ import (
 	mcgv1alpha1 "github.com/red-hat-storage/mcg-osd-deployer/api/v1alpha1"
 	"github.com/red-hat-storage/mcg-osd-deployer/controllers"
 
+	routev1 "github.com/openshift/api/route/v1"
 	promv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	promv1a1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1alpha1"
 	//+kubebuilder:scaffold:imports
@@ -56,8 +55,10 @@ var (
 )
 
 const (
-	namespaceEnvVarName = "NAMESPACE"
-	addonNameEnvVarName = "ADDON_NAME"
+	namespaceEnvVarName         = "NAMESPACE"
+	addonNameEnvVarName         = "ADDON_NAME"
+	sopEndpointEnvVarName       = "SOP_ENDPOINT"
+	alertSMTPFromAddrEnvVarName = "ALERT_SMTP_FROM_ADDR"
 )
 
 func init() {
@@ -68,10 +69,6 @@ func init() {
 func addAllSchemes(scheme *runtime.Scheme) {
 
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
-	utilruntime.Must(ocsv1.AddToScheme(scheme))
-
-	utilruntime.Must(odfv1alpha1.AddToScheme(scheme))
 
 	utilruntime.Must(mcgv1alpha1.AddToScheme(scheme))
 
@@ -84,6 +81,8 @@ func addAllSchemes(scheme *runtime.Scheme) {
 	utilruntime.Must(promv1.AddToScheme(scheme))
 
 	utilruntime.Must(promv1a1.AddToScheme(scheme))
+
+	utilruntime.Must(routev1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
 }
@@ -129,8 +128,14 @@ func main() {
 		Scheme:                       mgr.GetScheme(),
 		AddonConfigMapName:           addonName,
 		AddonConfigMapDeleteLabelKey: fmt.Sprintf("api.openshift.com/addon-%v-delete", addonName),
+		PagerdutySecretName:          fmt.Sprintf("%v-pagerduty", addonName),
+		DeadMansSnitchSecretName:     fmt.Sprintf("%v-deadmanssnitch", addonName),
+		SMTPSecretName:               fmt.Sprintf("%v-smtp", addonName),
+		SOPEndpoint:                  envVars[sopEndpointEnvVarName],
+		AlertSMTPFrom:                envVars[alertSMTPFromAddrEnvVarName],
+		CustomerNotificationHTMLPath: "templates/customernotification.html",
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ManagedMCG")
+		setupLog.Error(err, "unable to create controller.", "controller", "ManagedMCG")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
@@ -161,8 +166,10 @@ func getUnrestrictedClient() client.Client {
 
 func readEnvVars() (map[string]string, error) {
 	envVars := map[string]string{
-		namespaceEnvVarName: "",
-		addonNameEnvVarName: "",
+		namespaceEnvVarName:         "",
+		addonNameEnvVarName:         "",
+		sopEndpointEnvVarName:       "",
+		alertSMTPFromAddrEnvVarName: "",
 	}
 	for envVarName := range envVars {
 		val, found := os.LookupEnv(envVarName)

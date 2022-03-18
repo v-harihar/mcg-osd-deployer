@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-// StorageClusterTemplate is the template that serves as the base for the storage clsuter deployed by the operator
+// NoobaaTemplate is the template that serves as the base for the storage clsuter deployed by the operator
 
 var NoobaTemplate = &noobaa.NooBaa{
 	Spec: noobaa.NooBaaSpec{

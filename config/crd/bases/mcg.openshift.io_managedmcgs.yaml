@@ -54,7 +54,6 @@ spec:
                     - state
                     type: object
                   noobaa:
-                    description: StorageCluster ComponentStatus `json:"StorageCluster"`
                     properties:
                       state:
                         type: string

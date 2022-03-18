@@ -18,25 +18,21 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/go-logr/logr"
 	noobaa "github.com/noobaa/noobaa-operator/v5/pkg/apis/noobaa/v1alpha1"
-	operatorv1 "github.com/openshift/api/operator/v1"
+	routev1 "github.com/openshift/api/route/v1"
 	opv1a1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	promv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	promv1a1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1alpha1"
-	odfv1alpha1 "github.com/red-hat-data-services/odf-operator/api/v1alpha1"
 	mcgv1alpha1 "github.com/red-hat-storage/mcg-osd-deployer/api/v1alpha1"
 	"github.com/red-hat-storage/mcg-osd-deployer/templates"
 	"github.com/red-hat-storage/mcg-osd-deployer/utils"
-	ocsv1 "github.com/red-hat-storage/ocs-operator/api/v1"
-	"gopkg.in/yaml.v2"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -57,29 +53,9 @@ const (
 
 	odfOperatorManagerconfigMapName = "odf-operator-manager-config"
 	noobaaName                      = "noobaa"
-	storageSystemName               = "mcg-storagesystem"
 	ManagedMCGName                  = "managedmcg"
-	odfOperatorName                 = "odf-operator"
-	operatorConsoleName             = "cluster"
-	odfConsoleName                  = "odf-console"
-	storageClusterName              = "mcg-storagecluster"
 	deployerCSVPrefix               = "mcg-osd-deployer"
 	noobaaOperatorName              = "noobaa-operator"
-
-	alertRelabelConfigSecretKey            = "alertrelabelconfig.yaml"
-	prometheusName                         = "managed-mcg-prometheus"
-	monLabelKey                            = "app"
-	monLabelValue                          = "managed-mcg"
-	alertRelabelConfigSecretName           = "managed-mcg-alert-relabel-config-secret"
-	alertmanagerName                       = "managed-mcg-alertmanager"
-	notificationEmailKeyPrefix             = "notification-email"
-	grafanaDatasourceSecretName            = "grafana-datasources"
-	grafanaDatasourceSecretKey             = "prometheus.yaml"
-	k8sMetricsServiceMonitorAuthSecretName = "k8s-metrics-service-monitor-auth"
-	openshiftMonitoringNamespace           = "openshift-monitoring"
-	dmsRuleName                            = "dms-monitor-rule"
-	alertmanagerConfigName                 = "managed-mcg-alertmanager-config"
-	k8sMetricsServiceMonitorName           = "k8s-metrics-service-monitor"
 )
 
 // ImageMap holds mapping information between component image name and the image url
@@ -99,12 +75,8 @@ type ManagedMCGReconciler struct {
 	namespace          string
 	reconcileStrategy  mcgv1alpha1.ReconcileStrategy
 
-	odfOperatorManagerconfigMap *corev1.ConfigMap
-	noobaa                      *noobaa.NooBaa
-	storageSystem               *odfv1alpha1.StorageSystem
-	images                      ImageMap
-	operatorConsole             *operatorv1.Console
-	storageCluster              *ocsv1.StorageCluster
+	noobaa *noobaa.NooBaa
+	images ImageMap
 
 	AddonConfigMapName           string
 	AddonConfigMapDeleteLabelKey string
@@ -121,9 +93,13 @@ type ManagedMCGReconciler struct {
 	onboardingValidationKeySecret      *corev1.Secret
 	alertmanager                       *promv1.Alertmanager
 	PagerdutySecretName                string
-	SOPEndpoint                        string
 	dmsRule                            *promv1.PrometheusRule
 	DeadMansSnitchSecretName           string
+	CustomerNotificationHTMLPath       string
+	SMTPSecretName                     string
+	SOPEndpoint                        string
+	AlertSMTPFrom                      string
+	Route                              *routev1.Route
 }
 
 func (r *ManagedMCGReconciler) initReconciler(req ctrl.Request) {
@@ -134,25 +110,9 @@ func (r *ManagedMCGReconciler) initReconciler(req ctrl.Request) {
 	r.managedMCG.Name = req.NamespacedName.Name
 	r.managedMCG.Namespace = r.namespace
 
-	r.odfOperatorManagerconfigMap = &corev1.ConfigMap{}
-	r.odfOperatorManagerconfigMap.Name = odfOperatorManagerconfigMapName
-	r.odfOperatorManagerconfigMap.Namespace = r.namespace
-	r.odfOperatorManagerconfigMap.Data = make(map[string]string)
-
 	r.noobaa = &noobaa.NooBaa{}
 	r.noobaa.Name = noobaaName
 	r.noobaa.Namespace = r.namespace
-
-	r.storageSystem = &odfv1alpha1.StorageSystem{}
-	r.storageSystem.Name = storageSystemName
-	r.storageSystem.Namespace = r.namespace
-
-	r.operatorConsole = &operatorv1.Console{}
-	r.operatorConsole.Name = operatorConsoleName
-
-	r.storageCluster = &ocsv1.StorageCluster{}
-	r.storageCluster.Name = storageClusterName
-	r.storageCluster.Namespace = r.namespace
 
 	r.prometheus = &promv1.Prometheus{}
 	r.prometheus.Name = prometheusName
@@ -190,6 +150,14 @@ func (r *ManagedMCGReconciler) initReconciler(req ctrl.Request) {
 	r.alertRelabelConfigSecret.Name = alertRelabelConfigSecretName
 	r.alertRelabelConfigSecret.Namespace = r.namespace
 
+	r.Route = &routev1.Route{}
+	r.Route.Name = RouteName
+	r.Route.Namespace = r.namespace
+
+	r.smtpSecret = &corev1.Secret{}
+	r.smtpSecret.Name = r.SMTPSecretName
+	r.smtpSecret.Namespace = r.namespace
+
 }
 
 //+kubebuilder:rbac:groups=mcg.openshift.io,resources={managedmcg,managedmcg/finalizers},verbs=get;list;watch;create;update;patch;delete
@@ -198,20 +166,21 @@ func (r *ManagedMCGReconciler) initReconciler(req ctrl.Request) {
 //+kubebuilder:rbac:groups=mcg.openshift.io,resources=managedmcgs/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups="",namespace=system,resources=configmaps,verbs=create;get;list;watch;update
 //+kubebuilder:rbac:groups="coordination.k8s.io",namespace=system,resources=leases,verbs=create;get;list;watch;update
-//+kubebuilder:rbac:groups=operators.coreos.com,namespace=system,resources=clusterserviceversions,verbs=get;list;watch;delete;update;patch
+//+kubebuilder:rbac:groups=operators.coreos.com,namespace=system,resources=clusterserviceversions,verbs=get;list;watch;delete;
 // +kubebuilder:rbac:groups=ocs.openshift.io,namespace=system,resources=storageclusters,verbs=get;list;watch;create;update
 
 //+kubebuilder:rbac:groups=noobaa.io,namespace=system,resources=noobaas,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=odf.openshift.io,namespace=system,resources=storagesystems,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=console.openshift.io,resources=consoleplugins,verbs=*
-//+kubebuilder:rbac:groups=operator.openshift.io,resources=consoles,verbs=*
+// +kubebuilder:rbac:groups="",namespace=system,resources=secrets,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
-// +kubebuilder:rbac:groups="monitoring.coreos.com",namespace=system,resources={alertmanagers,prometheuses,alertmanagerconfigs},verbs=get;list;watch;create;update;
-// +kubebuilder:rbac:groups="monitoring.coreos.com",namespace=system,resources=prometheusrules,verbs=get;list;watch;create;update;
+// +kubebuilder:rbac:groups="monitoring.coreos.com",namespace=system,resources={alertmanagers,prometheuses,alertmanagerconfigs},verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups="monitoring.coreos.com",namespace=system,resources=prometheusrules,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups="monitoring.coreos.com",namespace=system,resources=podmonitors,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="monitoring.coreos.com",namespace=system,resources=servicemonitors,verbs=get;list;watch;update;patch;create;delete
+// +kubebuilder:rbac:groups="route.openshift.io",namespace=system,resources=routes,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups="apps",namespace=system,resources=statefulsets,verbs=get;list;watch
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
+// Reconcile is part of the main kubernetes reconcilication loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
 // the ManagedMCG object against the actual cluster state, and then
@@ -229,7 +198,7 @@ func (r *ManagedMCGReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if err := r.get(r.managedMCG); err != nil {
 		if errors.IsNotFound(err) {
-			r.Log.V(-1).Info("ManagedMCG resource not found..")
+			r.Log.V(-1).Info("ManagedMCG resource is not found")
 		} else {
 			return ctrl.Result{}, err
 		}
@@ -286,13 +255,6 @@ func (r *ManagedMCGReconciler) reconcilePhases() (reconcile.Result, error) {
 			if err := r.delete(r.noobaa); err != nil {
 				return ctrl.Result{}, fmt.Errorf("unable to delete nooba: %v", err)
 			}
-
-			// Deleting all storage systems from the namespace
-			r.Log.Info("deleting storageSystems")
-			if err := r.delete(r.storageSystem); err != nil {
-				return ctrl.Result{}, fmt.Errorf("unable to delete storageSystem: %v", err)
-			}
-
 		}
 
 	} else if r.managedMCG.UID != "" {
@@ -311,59 +273,12 @@ func (r *ManagedMCGReconciler) reconcilePhases() (reconcile.Result, error) {
 			r.reconcileStrategy = mcgv1alpha1.ReconcileStrategyNone
 		}
 
-		// Reconcile the different resources
-		//TODO : remove once ODF upgrad to 4.10
-		if err := r.reconcileODFOperatorMgrConfig(); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.reconcileConsoleCluster(); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.reconcileStorageSystem(); err != nil {
-			return ctrl.Result{}, err
-		}
-		//TODO : remove once ODF upgrad to 4.10
-		if err := r.reconcileODFCSV(); err != nil {
-			return ctrl.Result{}, err
-		}
 		if err := r.reconcileNoobaa(); err != nil {
 			return ctrl.Result{}, err
 		}
-		//TODO : remove once ODF upgrad to 4.10
-		if err := r.reconcileStorageCluster(); err != nil {
+		if err := r.reconcileAlertMonitoring(); err != nil {
 			return ctrl.Result{}, err
 		}
-
-		/*
-			Alert start here
-		*/
-		if err := r.reconcileAlertRelabelConfigSecret(); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.reconcilePrometheus(); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.reconcileAlertmanager(); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.reconcileAlertmanagerConfig(); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.reconcileK8SMetricsServiceMonitorAuthSecret(); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.reconcileK8SMetricsServiceMonitor(); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.reconcileMonitoringResources(); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.reconcileDMSPrometheusRule(); err != nil {
-			return ctrl.Result{}, err
-		}
-		/*
-			Alert End here
-		*/
 		r.managedMCG.Status.ReconcileStrategy = r.reconcileStrategy
 
 		// Check if we need and can uninstall
@@ -405,7 +320,9 @@ func (r *ManagedMCGReconciler) removeOLMComponents() error {
 
 func (r *ManagedMCGReconciler) areComponentsReadyForUninstall() bool {
 	subComponents := r.managedMCG.Status.Components
-	return subComponents.Noobaa.State == mcgv1alpha1.ComponentReady
+	return subComponents.Noobaa.State == mcgv1alpha1.ComponentReady &&
+		subComponents.Prometheus.State == mcgv1alpha1.ComponentReady &&
+		subComponents.Alertmanager.State == mcgv1alpha1.ComponentReady
 }
 
 func (r *ManagedMCGReconciler) checkUninstallCondition() bool {
@@ -424,367 +341,11 @@ func (r *ManagedMCGReconciler) checkUninstallCondition() bool {
 	return ok
 }
 
-func (r *ManagedMCGReconciler) reconcileDMSPrometheusRule() error {
-	r.Log.Info("Reconciling DMS Prometheus Rule")
-
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.dmsRule, func() error {
-		if err := r.own(r.dmsRule); err != nil {
-			return err
-		}
-
-		desired := templates.DMSPrometheusRuleTemplate.DeepCopy()
-
-		for _, group := range desired.Spec.Groups {
-			if group.Name == "snitch-alert" {
-				for _, rule := range group.Rules {
-					if rule.Alert == "DeadMansSnitch" {
-						rule.Labels["namespace"] = r.namespace
-					}
-				}
-			}
-		}
-
-		r.dmsRule.Spec = desired.Spec
-
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (r *ManagedMCGReconciler) reconcileK8SMetricsServiceMonitorAuthSecret() error {
-	r.Log.Info("Reconciling k8sMetricsServiceMonitorAuthSecret")
-
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.k8sMetricsServiceMonitorAuthSecret, func() error {
-		if err := r.own(r.k8sMetricsServiceMonitorAuthSecret); err != nil {
-			return err
-		}
-
-		secret := &corev1.Secret{}
-		secret.Name = grafanaDatasourceSecretName
-		secret.Namespace = openshiftMonitoringNamespace
-		if err := r.unrestrictedGet(secret); err != nil {
-			return fmt.Errorf("Failed to get grafana-datasources secret from openshift-monitoring namespace: %v", err)
-		}
-
-		authInfoStructure := struct {
-			DataSources []struct {
-				BasicAuthPassword string `json:"basicAuthPassword"`
-				BasicAuthUser     string `json:"basicAuthUser"`
-			} `json:"datasources"`
-		}{}
-
-		if err := json.Unmarshal(secret.Data[grafanaDatasourceSecretKey], &authInfoStructure); err != nil {
-			return fmt.Errorf("Could not unmarshal Grapana datasource data: %v", err)
-		}
-
-		r.k8sMetricsServiceMonitorAuthSecret.Data = nil
-		for key := range authInfoStructure.DataSources {
-			ds := &authInfoStructure.DataSources[key]
-			if ds.BasicAuthUser == "internal" && ds.BasicAuthPassword != "" {
-				r.k8sMetricsServiceMonitorAuthSecret.Data = map[string][]byte{
-					"Username": []byte(ds.BasicAuthUser),
-					"Password": []byte(ds.BasicAuthPassword),
-				}
-			}
-		}
-		if r.k8sMetricsServiceMonitorAuthSecret.Data == nil {
-			return fmt.Errorf("Grapana datasource does not contain the needed credentials")
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("Failed to update k8sMetricsServiceMonitorAuthSecret: %v", err)
-	}
-	return nil
-}
-
-func (r *ManagedMCGReconciler) reconcileK8SMetricsServiceMonitor() error {
-	r.Log.Info("Reconciling k8sMetricsServiceMonitor")
-
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.k8sMetricsServiceMonitor, func() error {
-		if err := r.own(r.k8sMetricsServiceMonitor); err != nil {
-			return err
-		}
-		desired := templates.K8sMetricsServiceMonitorTemplate.DeepCopy()
-		r.k8sMetricsServiceMonitor.Spec = desired.Spec
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("Failed to update k8sMetricsServiceMonitor: %v", err)
-	}
-	return nil
-}
-
-// reconcileMonitoringResources labels all monitoring resources (ServiceMonitors, PodMonitors, and PrometheusRules)
-// found in the target namespace with a label that matches the label selector the defined on the Prometheus resource
-// we are reconciling in reconcilePrometheus. Doing so instructs the Prometheus instance to notice and react to these labeled
-// monitoring resources
-func (r *ManagedMCGReconciler) reconcileMonitoringResources() error {
-	r.Log.Info("reconciling monitoring resources")
-
-	podMonitorList := promv1.PodMonitorList{}
-	if err := r.list(&podMonitorList); err != nil {
-		return fmt.Errorf("Could not list pod monitors: %v", err)
-	}
-	for i := range podMonitorList.Items {
-		obj := podMonitorList.Items[i]
-		utils.AddLabel(obj, monLabelKey, monLabelValue)
-		if err := r.update(obj); err != nil {
-			return err
-		}
-	}
-
-	serviceMonitorList := promv1.ServiceMonitorList{}
-	if err := r.list(&serviceMonitorList); err != nil {
-		return fmt.Errorf("Could not list service monitors: %v", err)
-	}
-	for i := range serviceMonitorList.Items {
-		obj := serviceMonitorList.Items[i]
-		utils.AddLabel(obj, monLabelKey, monLabelValue)
-		if err := r.update(obj); err != nil {
-			return err
-		}
-	}
-
-	promRuleList := promv1.PrometheusRuleList{}
-	if err := r.list(&promRuleList); err != nil {
-		return fmt.Errorf("Could not list prometheus rules: %v", err)
-	}
-	for i := range promRuleList.Items {
-		obj := promRuleList.Items[i]
-		utils.AddLabel(obj, monLabelKey, monLabelValue)
-		if err := r.update(obj); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (r *ManagedMCGReconciler) reconcileAlertmanagerConfig() error {
-	r.Log.Info("Reconciling AlertmanagerConfig secret")
-
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.alertmanagerConfig, func() error {
-		if err := r.own(r.alertmanagerConfig); err != nil {
-			return err
-		}
-
-		if err := r.get(r.pagerdutySecret); err != nil {
-			return fmt.Errorf("Unable to get pagerduty secret: %v", err)
-		}
-		pagerdutySecretData := r.pagerdutySecret.Data
-		pagerdutyServiceKey := string(pagerdutySecretData["PAGERDUTY_KEY"])
-		if pagerdutyServiceKey == "" {
-			return fmt.Errorf("Pagerduty secret does not contain a PAGERDUTY_KEY entry")
-		}
-
-		if r.deadMansSnitchSecret.UID == "" {
-			if err := r.get(r.deadMansSnitchSecret); err != nil {
-				return fmt.Errorf("Unable to get DeadMan's Snitch secret: %v", err)
-			}
-		}
-		dmsURL := string(r.deadMansSnitchSecret.Data["SNITCH_URL"])
-		if dmsURL == "" {
-			return fmt.Errorf("DeadMan's Snitch secret does not contain a SNITCH_URL entry")
-		}
-
-		alertingAddressList := []string{}
-		i := 0
-		for {
-			alertingAddressKey := fmt.Sprintf("%s-%v", notificationEmailKeyPrefix, i)
-			alertingAddress, found := r.addonParams[alertingAddressKey]
-			i++
-			if found {
-				alertingAddressAsString := alertingAddress
-				if alertingAddressAsString != "" {
-					alertingAddressList = append(alertingAddressList, alertingAddressAsString)
-				}
-			} else {
-				break
-			}
-		}
-
-		desired := templates.AlertmanagerConfigTemplate.DeepCopy()
-		for i := range desired.Spec.Receivers {
-			receiver := &desired.Spec.Receivers[i]
-			switch receiver.Name {
-			case "pagerduty":
-				receiver.PagerDutyConfigs[0].ServiceKey.Key = "PAGERDUTY_KEY"
-				receiver.PagerDutyConfigs[0].ServiceKey.LocalObjectReference.Name = r.PagerdutySecretName
-				receiver.PagerDutyConfigs[0].Details[0].Key = "SOP"
-				receiver.PagerDutyConfigs[0].Details[0].Value = r.SOPEndpoint
-			case "DeadMansSnitch":
-				receiver.WebhookConfigs[0].URL = &dmsURL
-			}
-		}
-		r.alertmanagerConfig.Spec = desired.Spec
-		utils.AddLabel(r.alertmanagerConfig, monLabelKey, monLabelValue)
-
-		return nil
-	})
-
-	return err
-}
-
-func (r *ManagedMCGReconciler) reconcileAlertmanager() error {
-	r.Log.Info("Reconciling Alertmanager")
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.alertmanager, func() error {
-		if err := r.own(r.alertmanager); err != nil {
-			return err
-		}
-
-		desired := templates.AlertmanagerTemplate.DeepCopy()
-		desired.Spec.AlertmanagerConfigSelector = &metav1.LabelSelector{
-			MatchLabels: map[string]string{
-				monLabelKey: monLabelValue,
-			},
-		}
-		r.alertmanager.Spec = desired.Spec
-		utils.AddLabel(r.alertmanager, monLabelKey, monLabelValue)
-
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (r *ManagedMCGReconciler) reconcilePrometheus() error {
-	r.Log.Info("Reconciling Prometheus")
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.prometheus, func() error {
-		if err := r.own(r.prometheus); err != nil {
-			return err
-		}
-		desired := templates.PrometheusTemplate.DeepCopy()
-		r.prometheus.ObjectMeta.Labels = map[string]string{monLabelKey: monLabelValue}
-		r.prometheus.Spec = desired.Spec
-		r.prometheus.Spec.Alerting.Alertmanagers[0].Namespace = r.namespace
-		r.prometheus.Spec.AdditionalAlertRelabelConfigs = &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{
-				Name: alertRelabelConfigSecretName,
-			},
-			Key: alertRelabelConfigSecretKey,
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// AlertRelabelConfigSecret will have configuration for relabeling the alerts that are firing.
-// It will add namespace label to firing alerts before they are sent to the alertmanager
-func (r *ManagedMCGReconciler) reconcileAlertRelabelConfigSecret() error {
-	r.Log.Info("Reconciling alertRelabelConfigSecret")
-
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.alertRelabelConfigSecret, func() error {
-		if err := r.own(r.alertRelabelConfigSecret); err != nil {
-			return err
-		}
-
-		alertRelabelConfig := []struct {
-			TargetLabel string `yaml:"target_label,omitempty"`
-			Replacement string `yaml:"replacement,omitempty"`
-		}{{
-			TargetLabel: "namespace",
-			Replacement: r.namespace,
-		}}
-
-		config, err := yaml.Marshal(alertRelabelConfig)
-		if err != nil {
-			return fmt.Errorf("Unable to encode alert relabel conifg: %v", err)
-		}
-		r.alertRelabelConfigSecret.Data = map[string][]byte{
-			alertRelabelConfigSecretKey: config,
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("Unable to create/update AlertRelabelConfigSecret: %v", err)
-	}
-
-	return nil
-}
-
-func (r *ManagedMCGReconciler) reconcileStorageCluster() error {
-	r.Log.Info("Reconciling StorageCluster")
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.storageCluster, func() error {
-		sc := templates.StorageClusterTemplate.DeepCopy()
-		r.storageCluster.Spec = sc.Spec
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (r *ManagedMCGReconciler) reconcileConsoleCluster() error {
-
-	consoleList := operatorv1.ConsoleList{}
-	if err := r.Client.List(r.ctx, &consoleList); err == nil {
-		for _, cluster := range consoleList.Items {
-			if utils.Contains(cluster.Spec.Plugins, odfConsoleName) {
-				r.Log.Info("Cluster instnce already exists.")
-				return nil
-			}
-		}
-	}
-
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.operatorConsole, func() error {
-		r.operatorConsole.Spec.Plugins = append(r.operatorConsole.Spec.Plugins, odfConsoleName)
-		return nil
-	})
-	return err
-}
-
-func (r *ManagedMCGReconciler) reconcileODFCSV() error {
-	var csv *opv1a1.ClusterServiceVersion
-	var err error
-	if csv, err = r.getCSVByPrefix(odfOperatorName); err != nil {
-		return err
-	}
-	var isChanged bool
-	deployments := csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs
-	for i := range deployments {
-		containers := deployments[i].Spec.Template.Spec.Containers
-		for j := range containers {
-			container := &containers[j]
-			name := container.Name
-			switch name {
-			case "manager":
-				resources := utils.GetResourceRequirements("odf-operator")
-				if !equality.Semantic.DeepEqual(container.Resources, resources) {
-					container.Resources = resources
-					isChanged = true
-				}
-			default:
-				r.Log.Info("Could not find resource requirement", "Resource", container.Name)
-			}
-		}
-	}
-	if isChanged {
-		if err := r.update(csv); err != nil {
-			return fmt.Errorf("Failed to update ODF CSV with resource requirements: %v", err)
-		}
-	}
-	return nil
-}
-
 func (r *ManagedMCGReconciler) reconcileNoobaa() error {
 	r.Log.Info("Reconciling Noobaa")
-	noobaList := noobaa.NooBaaList{}
-	if err := r.list(&noobaList); err == nil {
-		for _, noobaa := range noobaList.Items {
+	noobaaList := noobaa.NooBaaList{}
+	if err := r.list(&noobaaList); err == nil {
+		for _, noobaa := range noobaaList.Items {
 			if noobaa.Name == noobaaName {
 				r.Log.Info("Noobaa instnce already exists.")
 				return nil
@@ -794,9 +355,6 @@ func (r *ManagedMCGReconciler) reconcileNoobaa() error {
 	desiredNoobaa := templates.NoobaTemplate.DeepCopy()
 	err := r.setNooBaaDesiredState(desiredNoobaa)
 	_, err = ctrl.CreateOrUpdate(r.ctx, r.Client, r.noobaa, func() error {
-		if err := r.own(r.storageSystem); err != nil {
-			return err
-		}
 		r.noobaa.Spec = desiredNoobaa.Spec
 		return nil
 	})
@@ -830,43 +388,6 @@ func (r *ManagedMCGReconciler) setNooBaaDesiredState(desiredNoobaa *noobaa.NooBa
 
 	return nil
 }
-func (r *ManagedMCGReconciler) reconcileStorageSystem() error {
-	r.Log.Info("Reconciling StorageSystem.")
-
-	ssList := odfv1alpha1.StorageSystemList{}
-	if err := r.list(&ssList); err == nil {
-		for _, storageSyste := range ssList.Items {
-			if storageSyste.Name == storageSystemName {
-				r.Log.Info("storageSystem instnce already exists.")
-				return nil
-			}
-		}
-	}
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.storageSystem, func() error {
-
-		if r.reconcileStrategy == mcgv1alpha1.ReconcileStrategyStrict {
-			var desired *odfv1alpha1.StorageSystem = nil
-			var err error
-			if desired, err = r.getDesiredConvergedStorageSystem(); err != nil {
-				return err
-			}
-			r.storageSystem.Spec = desired.Spec
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (r *ManagedMCGReconciler) getDesiredConvergedStorageSystem() (*odfv1alpha1.StorageSystem, error) {
-	ss := templates.StorageSystemTemplate.DeepCopy()
-	ss.Spec.Name = storageClusterName
-	ss.Spec.Namespace = r.namespace
-	return ss, nil
-}
 
 func (r *ManagedMCGReconciler) verifyComponentsDoNotExist() bool {
 	subComponent := r.managedMCG.Status.Components
@@ -875,20 +396,6 @@ func (r *ManagedMCGReconciler) verifyComponentsDoNotExist() bool {
 		return true
 	}
 	return false
-}
-
-func (r *ManagedMCGReconciler) reconcileODFOperatorMgrConfig() error {
-	r.Log.Info("Reconciling odf-operator-manager-config ConfigMap")
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.odfOperatorManagerconfigMap, func() error {
-		r.odfOperatorManagerconfigMap.Data["ODF_SUBSCRIPTION_NAME"] = "odf-operator-stable-4.9-redhat-operators-openshift-marketplace"
-		r.odfOperatorManagerconfigMap.Data["NOOBAA_SUBSCRIPTION_STARTINGCSV"] = "mcg-operator.v4.9.2"
-
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func (r *ManagedMCGReconciler) updateComponentStatus() {
@@ -906,6 +413,58 @@ func (r *ManagedMCGReconciler) updateComponentStatus() {
 	} else {
 		r.Log.V(-1).Info("error getting Noobaa, setting compoment status to Unknown")
 		noobaa.State = mcgv1alpha1.ComponentUnknown
+	}
+
+	// Getting the status of the Prometheus component.
+	promStatus := &r.managedMCG.Status.Components.Prometheus
+	if err := r.get(r.prometheus); err == nil {
+		promStatefulSet := &appsv1.StatefulSet{}
+		promStatefulSet.Namespace = r.namespace
+		promStatefulSet.Name = fmt.Sprintf("prometheus-%s", prometheusName)
+		if err := r.get(promStatefulSet); err == nil {
+			desiredReplicas := int32(1)
+			if r.prometheus.Spec.Replicas != nil {
+				desiredReplicas = *r.prometheus.Spec.Replicas
+			}
+			if promStatefulSet.Status.ReadyReplicas != desiredReplicas {
+				promStatus.State = mcgv1alpha1.ComponentPending
+			} else {
+				promStatus.State = mcgv1alpha1.ComponentReady
+			}
+		} else {
+			promStatus.State = mcgv1alpha1.ComponentPending
+		}
+	} else if errors.IsNotFound(err) {
+		promStatus.State = mcgv1alpha1.ComponentNotFound
+	} else {
+		r.Log.V(-1).Info("error getting Prometheus, setting compoment status to Unknown")
+		promStatus.State = mcgv1alpha1.ComponentUnknown
+	}
+
+	// Getting the status of the Alertmanager component.
+	amStatus := &r.managedMCG.Status.Components.Alertmanager
+	if err := r.get(r.alertmanager); err == nil {
+		amStatefulSet := &appsv1.StatefulSet{}
+		amStatefulSet.Namespace = r.namespace
+		amStatefulSet.Name = fmt.Sprintf("alertmanager-%s", alertmanagerName)
+		if err := r.get(amStatefulSet); err == nil {
+			desiredReplicas := int32(1)
+			if r.alertmanager.Spec.Replicas != nil {
+				desiredReplicas = *r.alertmanager.Spec.Replicas
+			}
+			if amStatefulSet.Status.ReadyReplicas != desiredReplicas {
+				amStatus.State = mcgv1alpha1.ComponentPending
+			} else {
+				amStatus.State = mcgv1alpha1.ComponentReady
+			}
+		} else {
+			amStatus.State = mcgv1alpha1.ComponentPending
+		}
+	} else if errors.IsNotFound(err) {
+		amStatus.State = mcgv1alpha1.ComponentNotFound
+	} else {
+		r.Log.V(-1).Info("error getting Alertmanager, setting compoment status to Unknown")
+		amStatus.State = mcgv1alpha1.ComponentUnknown
 	}
 }
 
@@ -938,6 +497,9 @@ func (r *ManagedMCGReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				name := client.GetName()
 				if name == odfOperatorManagerconfigMapName {
 					return true
+				}
+				if name == alertmanagerConfigName {
+					return true
 				} else if name == r.AddonConfigMapName {
 					if _, ok := client.GetLabels()[r.AddonConfigMapDeleteLabelKey]; ok {
 						return true
@@ -948,10 +510,22 @@ func (r *ManagedMCGReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		),
 	)
 
-	odfPredicates := builder.WithPredicates(
+	prometheusRulesPredicates := builder.WithPredicates(
 		predicate.NewPredicateFuncs(
 			func(client client.Object) bool {
-				return strings.HasPrefix(client.GetName(), odfOperatorName)
+				labels := client.GetLabels()
+				return labels == nil || labels[monLabelKey] != monLabelValue
+			},
+		),
+	)
+
+	secretPredicates := builder.WithPredicates(
+		predicate.NewPredicateFuncs(
+			func(client client.Object) bool {
+				name := client.GetName()
+				return name == r.PagerdutySecretName ||
+					name == r.DeadMansSnitchSecretName ||
+					name == r.SMTPSecretName
 			},
 		),
 	)
@@ -964,22 +538,12 @@ func (r *ManagedMCGReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		),
 	)
 
-	ssPredicates := builder.WithPredicates(
-		predicate.NewPredicateFuncs(
-			func(client client.Object) bool {
-				return strings.HasPrefix(client.GetName(), storageSystemName)
-			},
-		),
-	)
-
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(ctrlOptions).
 		For(&mcgv1alpha1.ManagedMCG{}, managedMCGredicates).
 
 		// Watch owned resources
-		Owns(&ocsv1.StorageCluster{}).
 		Owns(&noobaa.NooBaa{}).
-		Owns(&odfv1alpha1.StorageSystem{}).
 
 		// Watch non-owned resources
 		Watches(
@@ -988,19 +552,19 @@ func (r *ManagedMCGReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			configMapPredicates,
 		).
 		Watches(
-			&source.Kind{Type: &odfv1alpha1.StorageSystem{}},
-			enqueueManangedMCGRequest,
-			ssPredicates,
-		).
-		Watches(
 			&source.Kind{Type: &noobaa.NooBaa{}},
 			enqueueManangedMCGRequest,
 			noobaaPredicates,
 		).
 		Watches(
-			&source.Kind{Type: &opv1a1.ClusterServiceVersion{}},
+			&source.Kind{Type: &corev1.Secret{}},
 			enqueueManangedMCGRequest,
-			odfPredicates,
+			secretPredicates,
+		).
+		Watches(
+			&source.Kind{Type: &promv1.PrometheusRule{}},
+			enqueueManangedMCGRequest,
+			prometheusRulesPredicates,
 		).
 		Complete(r)
 }

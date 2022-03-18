@@ -58,7 +58,6 @@ type ComponentStatus struct {
 }
 
 type ComponentStatusMap struct {
-	//StorageCluster ComponentStatus `json:"StorageCluster"`
 	Noobaa         ComponentStatus `json:"noobaa"`
 	Prometheus     ComponentStatus `json:"prometheus"`
 	Alertmanager   ComponentStatus `json:"alertmanager"`

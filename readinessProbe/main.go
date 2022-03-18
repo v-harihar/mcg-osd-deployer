@@ -1,11 +1,11 @@
 // Description: This program creates a web server to verify if the managedmcg
 //              resource is ready. It is used as a readiness probe by the
-//              ocs-osd-deployer operator. For this to be set up, the following
+//              ocs-mcg-deployer operator. For this to be set up, the following
 //              sidecar should be added to the manager CSV:
 //      - name: readinessServer
 //        command:
 //        - /readinessServer
-//        image: ocs-osd-deployer:latest
+//        image: ocs-mcg-deployer:latest
 //        readinessProbe:
 //          httpGet:
 //            path: /readyz
@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"os"
 
-	//ocsv1 "github.com/openshift/ocs-operator/pkg/apis"
 	v1 "github.com/red-hat-storage/mcg-osd-deployer/api/v1alpha1"
 	"github.com/red-hat-storage/mcg-osd-deployer/readinessProbe/readiness"
 	"k8s.io/apimachinery/pkg/runtime"
