@@ -36,7 +36,13 @@ var DMSPrometheusRuleTemplate = promv1.PrometheusRule{
 						},
 						Labels: map[string]string{
 							"alertname": "DeadMansSnitch",
+							"severity":  "warning",
 						},
+						Annotations: map[string]string{
+							"severity_level": "warning",
+							"storage_type":   "NooBaa",
+						},
+						For: "5s",
 					},
 				},
 			},

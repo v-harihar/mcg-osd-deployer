@@ -158,7 +158,7 @@ func (r *ManagedMCGReconciler) reconcileK8SMetricsServiceMonitorAuthSecret() err
 		}{}
 
 		if err := json.Unmarshal(secret.Data[grafanaDatasourceSecretKey], &authInfoStructure); err != nil {
-			return fmt.Errorf("Could not unmarshal Grapana datasource data: %v", err)
+			return fmt.Errorf("Could not unmarshal Grafana datasource data: %v", err)
 		}
 
 		r.k8sMetricsServiceMonitorAuthSecret.Data = nil
