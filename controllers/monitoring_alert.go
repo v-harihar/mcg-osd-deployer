@@ -17,11 +17,11 @@ limitations under the License.
 package controllers
 
 import (
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"strings"
 
+	routev1 "github.com/openshift/api/route/v1"
 	promv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	promv1a1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1alpha1"
 	"github.com/red-hat-storage/mcg-osd-deployer/templates"
@@ -40,7 +40,8 @@ const (
 	alertRelabelConfigSecretName           = "managed-mcg-alert-relabel-config-secret"
 	alertmanagerName                       = "managed-mcg-alertmanager"
 	notificationEmailKeyPrefix             = "notification-email"
-	grafanaDatasourceSecretName            = "grafana-datasources-v2"
+	grafanaDatasourceSecretName            = "grafana-datasources"
+	grafanaDatasourceV2SecretName          = "grafana-datasources-v2"
 	grafanaDatasourceSecretKey             = "prometheus.yaml"
 	k8sMetricsServiceMonitorAuthSecretName = "k8s-metrics-service-monitor-auth"
 	openshiftMonitoringNamespace           = "openshift-monitoring"
@@ -49,6 +50,44 @@ const (
 	k8sMetricsServiceMonitorName           = "k8s-metrics-service-monitor"
 	RouteName                              = "prometheus-route"
 )
+
+func (r *ManagedMCGReconciler) initPrometheusReconciler(req ctrl.Request) {
+	r.prometheus = &promv1.Prometheus{}
+	r.prometheus.Name = prometheusName
+	r.prometheus.Namespace = r.namespace
+
+	r.alertmanager = &promv1.Alertmanager{}
+	r.alertmanager.Name = alertmanagerName
+	r.alertmanager.Namespace = r.namespace
+
+	r.pagerdutySecret = &corev1.Secret{}
+	r.pagerdutySecret.Name = r.PagerdutySecretName
+	r.pagerdutySecret.Namespace = r.namespace
+
+	r.dmsRule = &promv1.PrometheusRule{}
+	r.dmsRule.Name = dmsRuleName
+	r.dmsRule.Namespace = r.namespace
+
+	r.deadMansSnitchSecret = &corev1.Secret{}
+	r.deadMansSnitchSecret.Name = r.DeadMansSnitchSecretName
+	r.deadMansSnitchSecret.Namespace = r.namespace
+
+	r.alertmanagerConfig = &promv1a1.AlertmanagerConfig{}
+	r.alertmanagerConfig.Name = alertmanagerConfigName
+	r.alertmanagerConfig.Namespace = r.namespace
+
+	r.alertRelabelConfigSecret = &corev1.Secret{}
+	r.alertRelabelConfigSecret.Name = alertRelabelConfigSecretName
+	r.alertRelabelConfigSecret.Namespace = r.namespace
+
+	r.Route = &routev1.Route{}
+	r.Route.Name = RouteName
+	r.Route.Namespace = r.namespace
+
+	r.smtpSecret = &corev1.Secret{}
+	r.smtpSecret.Name = r.SMTPSecretName
+	r.smtpSecret.Namespace = r.namespace
+}
 
 func (r *ManagedMCGReconciler) reconcileAlertMonitoring() error {
 	if err := r.reconcileAlertRelabelConfigSecret(); err != nil {
@@ -61,12 +100,6 @@ func (r *ManagedMCGReconciler) reconcileAlertMonitoring() error {
 		return err
 	}
 	if err := r.reconcileAlertmanagerConfig(); err != nil {
-		return err
-	}
-	if err := r.reconcileK8SMetricsServiceMonitorAuthSecret(); err != nil {
-		return err
-	}
-	if err := r.reconcileK8SMetricsServiceMonitor(); err != nil {
 		return err
 	}
 	if err := r.reconcileMonitoringResources(); err != nil {
@@ -131,72 +164,6 @@ func (r *ManagedMCGReconciler) reconcilePrometheusRoutes() error {
 		return nil
 	})
 	return err
-}
-
-func (r *ManagedMCGReconciler) reconcileK8SMetricsServiceMonitorAuthSecret() error {
-	r.Log.Info("Reconciling k8sMetricsServiceMonitorAuthSecret")
-
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.k8sMetricsServiceMonitorAuthSecret, func() error {
-		if err := r.own(r.k8sMetricsServiceMonitorAuthSecret); err != nil {
-			return err
-		}
-
-		secret := &corev1.Secret{}
-		secret.Name = grafanaDatasourceSecretName
-		secret.Namespace = openshiftMonitoringNamespace
-		if err := r.unrestrictedGet(secret); err != nil {
-			return fmt.Errorf("Failed to get grafana-datasources secret from openshift-monitoring namespace: %v", err)
-		}
-
-		authInfoStructure := struct {
-			DataSources []struct {
-				SecureJSONData struct {
-					BasicAuthPassword string `json:"basicAuthPassword"`
-				} `json:"secureJsonData"`
-				BasicAuthUser string `json:"basicAuthUser"`
-			}
-		}{}
-
-		if err := json.Unmarshal(secret.Data[grafanaDatasourceSecretKey], &authInfoStructure); err != nil {
-			return fmt.Errorf("Could not unmarshal Grafana datasource data: %v", err)
-		}
-
-		r.k8sMetricsServiceMonitorAuthSecret.Data = nil
-		for key := range authInfoStructure.DataSources {
-			ds := &authInfoStructure.DataSources[key]
-			if ds.BasicAuthUser == "internal" && ds.SecureJSONData.BasicAuthPassword != "" {
-				r.k8sMetricsServiceMonitorAuthSecret.Data = map[string][]byte{
-					"Username": []byte(ds.BasicAuthUser),
-					"Password": []byte(ds.SecureJSONData.BasicAuthPassword),
-				}
-			}
-		}
-		if r.k8sMetricsServiceMonitorAuthSecret.Data == nil {
-			return fmt.Errorf("Grapana datasource does not contain the needed credentials")
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("Failed to update k8sMetricsServiceMonitorAuthSecret: %v", err)
-	}
-	return nil
-}
-
-func (r *ManagedMCGReconciler) reconcileK8SMetricsServiceMonitor() error {
-	r.Log.Info("Reconciling k8sMetricsServiceMonitor")
-
-	_, err := ctrl.CreateOrUpdate(r.ctx, r.Client, r.k8sMetricsServiceMonitor, func() error {
-		if err := r.own(r.k8sMetricsServiceMonitor); err != nil {
-			return err
-		}
-		desired := templates.K8sMetricsServiceMonitorTemplate.DeepCopy()
-		r.k8sMetricsServiceMonitor.Spec = desired.Spec
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("Failed to update k8sMetricsServiceMonitor: %v", err)
-	}
-	return nil
 }
 
 // reconcileMonitoringResources labels all monitoring resources (ServiceMonitors, PodMonitors, and PrometheusRules)

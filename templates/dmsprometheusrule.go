@@ -42,7 +42,6 @@ var DMSPrometheusRuleTemplate = promv1.PrometheusRule{
 							"severity_level": "warning",
 							"storage_type":   "NooBaa",
 						},
-						For: "5s",
 					},
 				},
 			},

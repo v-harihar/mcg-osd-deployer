@@ -80,26 +80,25 @@ type ManagedMCGReconciler struct {
 
 	AddonConfigMapName           string
 	AddonConfigMapDeleteLabelKey string
+	AddonParamSecretName         string
 
-	prometheus                         *promv1.Prometheus
-	pagerdutySecret                    *corev1.Secret
-	deadMansSnitchSecret               *corev1.Secret
-	smtpSecret                         *corev1.Secret
-	alertmanagerConfig                 *promv1a1.AlertmanagerConfig
-	alertRelabelConfigSecret           *corev1.Secret
-	k8sMetricsServiceMonitor           *promv1.ServiceMonitor
-	k8sMetricsServiceMonitorAuthSecret *corev1.Secret
-	addonParams                        map[string]string
-	onboardingValidationKeySecret      *corev1.Secret
-	alertmanager                       *promv1.Alertmanager
-	PagerdutySecretName                string
-	dmsRule                            *promv1.PrometheusRule
-	DeadMansSnitchSecretName           string
-	CustomerNotificationHTMLPath       string
-	SMTPSecretName                     string
-	SOPEndpoint                        string
-	AlertSMTPFrom                      string
-	Route                              *routev1.Route
+	prometheus                    *promv1.Prometheus
+	pagerdutySecret               *corev1.Secret
+	deadMansSnitchSecret          *corev1.Secret
+	smtpSecret                    *corev1.Secret
+	alertmanagerConfig            *promv1a1.AlertmanagerConfig
+	alertRelabelConfigSecret      *corev1.Secret
+	addonParams                   map[string]string
+	onboardingValidationKeySecret *corev1.Secret
+	alertmanager                  *promv1.Alertmanager
+	PagerdutySecretName           string
+	dmsRule                       *promv1.PrometheusRule
+	DeadMansSnitchSecretName      string
+	CustomerNotificationHTMLPath  string
+	SMTPSecretName                string
+	SOPEndpoint                   string
+	AlertSMTPFrom                 string
+	Route                         *routev1.Route
 }
 
 func (r *ManagedMCGReconciler) initReconciler(req ctrl.Request) {
@@ -113,50 +112,7 @@ func (r *ManagedMCGReconciler) initReconciler(req ctrl.Request) {
 	r.noobaa = &noobaa.NooBaa{}
 	r.noobaa.Name = noobaaName
 	r.noobaa.Namespace = r.namespace
-
-	r.prometheus = &promv1.Prometheus{}
-	r.prometheus.Name = prometheusName
-	r.prometheus.Namespace = r.namespace
-
-	r.alertmanager = &promv1.Alertmanager{}
-	r.alertmanager.Name = alertmanagerName
-	r.alertmanager.Namespace = r.namespace
-
-	r.pagerdutySecret = &corev1.Secret{}
-	r.pagerdutySecret.Name = r.PagerdutySecretName
-	r.pagerdutySecret.Namespace = r.namespace
-
-	r.dmsRule = &promv1.PrometheusRule{}
-	r.dmsRule.Name = dmsRuleName
-	r.dmsRule.Namespace = r.namespace
-
-	r.deadMansSnitchSecret = &corev1.Secret{}
-	r.deadMansSnitchSecret.Name = r.DeadMansSnitchSecretName
-	r.deadMansSnitchSecret.Namespace = r.namespace
-
-	r.alertmanagerConfig = &promv1a1.AlertmanagerConfig{}
-	r.alertmanagerConfig.Name = alertmanagerConfigName
-	r.alertmanagerConfig.Namespace = r.namespace
-
-	r.k8sMetricsServiceMonitor = &promv1.ServiceMonitor{}
-	r.k8sMetricsServiceMonitor.Name = k8sMetricsServiceMonitorName
-	r.k8sMetricsServiceMonitor.Namespace = r.namespace
-
-	r.k8sMetricsServiceMonitorAuthSecret = &corev1.Secret{}
-	r.k8sMetricsServiceMonitorAuthSecret.Name = k8sMetricsServiceMonitorAuthSecretName
-	r.k8sMetricsServiceMonitorAuthSecret.Namespace = r.namespace
-
-	r.alertRelabelConfigSecret = &corev1.Secret{}
-	r.alertRelabelConfigSecret.Name = alertRelabelConfigSecretName
-	r.alertRelabelConfigSecret.Namespace = r.namespace
-
-	r.Route = &routev1.Route{}
-	r.Route.Name = RouteName
-	r.Route.Namespace = r.namespace
-
-	r.smtpSecret = &corev1.Secret{}
-	r.smtpSecret.Name = r.SMTPSecretName
-	r.smtpSecret.Namespace = r.namespace
+	r.initPrometheusReconciler(req)
 
 }
 
@@ -270,6 +226,17 @@ func (r *ManagedMCGReconciler) reconcilePhases() (reconcile.Result, error) {
 		r.reconcileStrategy = mcgv1alpha1.ReconcileStrategyStrict
 		if strings.EqualFold(string(r.managedMCG.Spec.ReconcileStrategy), string(mcgv1alpha1.ReconcileStrategyNone)) {
 			r.reconcileStrategy = mcgv1alpha1.ReconcileStrategyNone
+		}
+
+		// Read the add-on parameters secret and store it an addonParams map
+		addonParamSecret := &corev1.Secret{}
+		addonParamSecret.Name = r.AddonParamSecretName
+		addonParamSecret.Namespace = r.namespace
+		if err := r.get(addonParamSecret); err != nil {
+			return ctrl.Result{}, fmt.Errorf("Failed to get the addon parameters secret %v", r.AddonParamSecretName)
+		}
+		for key, value := range addonParamSecret.Data {
+			r.addonParams[key] = string(value)
 		}
 
 		if err := r.reconcileNoobaa(); err != nil {
@@ -522,7 +489,8 @@ func (r *ManagedMCGReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		predicate.NewPredicateFuncs(
 			func(client client.Object) bool {
 				name := client.GetName()
-				return name == r.PagerdutySecretName ||
+				return name == r.AddonParamSecretName ||
+					name == r.PagerdutySecretName ||
 					name == r.DeadMansSnitchSecretName ||
 					name == r.SMTPSecretName
 			},

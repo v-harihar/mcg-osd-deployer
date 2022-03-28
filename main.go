@@ -126,6 +126,7 @@ func main() {
 		UnrestrictedClient:           getUnrestrictedClient(),
 		Log:                          ctrl.Log.WithName("controllers").WithName("ManagedMCG"),
 		Scheme:                       mgr.GetScheme(),
+		AddonParamSecretName:         fmt.Sprintf("addon-%v-parameters", addonName),
 		AddonConfigMapName:           addonName,
 		AddonConfigMapDeleteLabelKey: fmt.Sprintf("api.openshift.com/addon-%v-delete", addonName),
 		PagerdutySecretName:          fmt.Sprintf("%v-pagerduty", addonName),
