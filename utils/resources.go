@@ -11,22 +11,22 @@ var (
 	ResourceRequirements = map[string]corev1.ResourceRequirements{
 		"noobaa-core": {
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("500m"),
-				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourceCPU:    resource.MustParse("250m"),
+				corev1.ResourceMemory: resource.MustParse("500Mi"),
 			},
 			Limits: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("500m"),
-				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
 			},
 		},
 		"noobaa-db": {
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("500m"),
-				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourceCPU:    resource.MustParse("300m"),
+				corev1.ResourceMemory: resource.MustParse("200Mi"),
 			},
 			Limits: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("500m"),
-				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourceMemory: resource.MustParse("500Mi"),
 			},
 		},
 		"noobaa-db-vol": {
@@ -36,41 +36,31 @@ var (
 		},
 		"noobaa-endpoint": {
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("1"),
-				corev1.ResourceMemory: resource.MustParse("2Gi"),
+				corev1.ResourceCPU:    resource.MustParse("250m"),
+				corev1.ResourceMemory: resource.MustParse("200Mi"),
 			},
 			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("1"),
-				corev1.ResourceMemory: resource.MustParse("2Gi"),
-			},
-		},
-		"odf-operator": {
-			Limits: corev1.ResourceList{
-				"cpu":    resource.MustParse("200m"),
-				"memory": resource.MustParse("120Mi"),
-			},
-			Requests: corev1.ResourceList{
-				"cpu":    resource.MustParse("200m"),
-				"memory": resource.MustParse("120Mi"),
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("500Mi"),
 			},
 		},
 		"prometheus": {
-			Limits: corev1.ResourceList{
-				"cpu":    resource.MustParse("1"),
-				"memory": resource.MustParse("250Mi"),
-			},
 			Requests: corev1.ResourceList{
-				"cpu":    resource.MustParse("1"),
+				"cpu":    resource.MustParse("250m"),
+				"memory": resource.MustParse("100Mi"),
+			},
+			Limits: corev1.ResourceList{
+				"cpu":    resource.MustParse("500m"),
 				"memory": resource.MustParse("250Mi"),
 			},
 		},
 		"alertmanager": {
-			Limits: corev1.ResourceList{
-				"cpu":    resource.MustParse("100m"),
-				"memory": resource.MustParse("200Mi"),
-			},
 			Requests: corev1.ResourceList{
 				"cpu":    resource.MustParse("100m"),
+				"memory": resource.MustParse("100Mi"),
+			},
+			Limits: corev1.ResourceList{
+				"cpu":    resource.MustParse("200m"),
 				"memory": resource.MustParse("200Mi"),
 			},
 		},

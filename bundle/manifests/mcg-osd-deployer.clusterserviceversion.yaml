@@ -189,7 +189,7 @@ spec:
                   value: quay.io/noobaa/noobaa-core:5.9-20220206
                 - name: NOOBAA_DB_IMAGE
                   value: quay.io/centos7/postgresql-12-centos7:centos7
-                image: quay.io/napaul/mcg-osd-deployer:v1.7
+                image: quay.io/napaul/mcg-osd-deployer:v1.2
                 name: manager
                 resources:
                   limits:
@@ -205,7 +205,7 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.namespace
-                image: quay.io/napaul/mcg-osd-deployer:v1.7
+                image: quay.io/napaul/mcg-osd-deployer:v1.2
                 name: readiness-server
                 readinessProbe:
                   httpGet:

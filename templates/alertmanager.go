@@ -24,11 +24,11 @@ import (
 )
 
 // AlertmanagerTemplate is the template that serves as the base for the Alert Manager deployed by the operator
-var _3 = int32(3)
+var _1 = int32(1)
 
 var AlertmanagerTemplate = promv1.Alertmanager{
 	Spec: promv1.AlertmanagerSpec{
-		Replicas:  &_3,
+		Replicas:  &_1,
 		Resources: utils.GetResourceRequirements("alertmanager"),
 		TopologySpreadConstraints: []v1.TopologySpreadConstraint{
 			{

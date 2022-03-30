@@ -104,6 +104,7 @@ type ManagedMCGReconciler struct {
 func (r *ManagedMCGReconciler) initReconciler(req ctrl.Request) {
 	r.ctx = context.Background()
 	r.namespace = req.NamespacedName.Namespace
+	r.addonParams = make(map[string]string)
 
 	r.managedMCG = &mcgv1alpha1.ManagedMCG{}
 	r.managedMCG.Name = req.NamespacedName.Name
